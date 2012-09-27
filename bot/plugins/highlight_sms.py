@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta
+import os
 
 from util import hook
 
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+
+from twilio.rest import TwilioRestClient
 
 
 ### Initialize DB
@@ -50,8 +53,16 @@ auth_queue = {}
 
 ### Handle SMS highlights
 
-def highlight_sms(nick, sender, message):
+def highlight_sms(nick, sender, message, channel, bot):
     # ghetto throttle: no more than 1 msg per 10 min
+
+    account_sid = bot.config.get("api_keys", {}).get("twilio_sid", None)
+    account_auth_token = bot.config.get("api_keys", {}).get("twilio_auth", None)
+    twilio_number = bot.config.get("api_keys", {}).get("twilio_number", None)
+
+    if not account_sid or not account_auth_token:
+        print "** missing info in api keys"
+        return
 
     session = Session()
     user = session.query(User).filter_by(nick=nick).first()
@@ -67,7 +78,15 @@ def highlight_sms(nick, sender, message):
         session.commit()
 
         if user.enabled == True:
-            print "Fake sending text message to user %s - '%s: %s'" % (nick, sender, message)
+            client = TwilioRestClient(account_sid, account_auth_token)
+            to_num = "+%i" % (user.number)
+            from_num = "+%s" % (twilio_number)
+            body = "(%s) %s: %s" % (channel, sender, message)
+
+            print "sending >>> %s" % (body)
+
+            #message = client.sms.messages.create(to=to_num, from_=from_num, body = body)
+
     else:
         print "Throttle hit for user %s (highlighted by %s)" % (nick, sender)
 
@@ -77,10 +96,11 @@ def highlight_sms(nick, sender, message):
 def highlight_hook(paraml, input=None, db=None, bot=None):
     sender = input.nick
     message = input.msg
+    channel = input.chan
 
     for nick in highlight_nick_cache:
         if nick in message:
-            highlight_sms(nick, sender, message)
+            highlight_sms(nick, sender, message, channel, bot)
 
 
 ### Register for SMS
@@ -146,6 +166,8 @@ def _enablesms(nick, arg):
     session.add(user)
     session.commit()
 
+    highlight_nick_cache.append(user.nick)
+
     return "Enabled SMS messaging on highlights. To disable, use .disablesms."
 
 
@@ -166,6 +188,8 @@ def _disablesms(nick, arg):
     user.enabled = False
     session.add(user)
     session.commit()
+
+    highlight_nick_cache.remove(user.nick)
 
     return "Disabled SMS messaging on highlights. To re-enable, use .enablesms."
 

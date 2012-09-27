@@ -3,7 +3,7 @@ import socket
 import subprocess
 import time
 
-from util import hook, http
+from util import hook
 
 socket.setdefaulttimeout(10)  # global setting
 
@@ -17,8 +17,8 @@ def get_version():
 
     shorthash = stdout.split(None, 1)[0]
 
-    http.ua_skybot = 'Skybot/r%d %s (http://github.com/rmmh/skybot)' \
-                        % (revnumber, shorthash)
+    #http.ua_skybot = 'Skybot/r%d %s (http://github.com/rmmh/skybot)' \
+    #                    % (revnumber, shorthash)
 
     return shorthash, revnumber
 

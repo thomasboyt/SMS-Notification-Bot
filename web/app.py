@@ -4,10 +4,7 @@ import twilio.twiml
 
 app = Flask(__name__)
 
-try:
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
-except KeyError:
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///../test.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///../test.db')
 
 db = SQLAlchemy(app)
 
