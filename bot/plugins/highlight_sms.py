@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 import os
+import phonenumbers
 
 from util import hook
 
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from twilio.rest import TwilioRestClient
@@ -29,7 +31,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     nick = Column(String, unique=True)
-    number = Column(Integer)
+    number = Column(String)
     enabled = Column(Boolean, default=True)
     last_sms_time = Column(DateTime)
 
@@ -56,11 +58,12 @@ auth_queue = {}
 def highlight_sms(nick, sender, message, channel, bot):
     # ghetto throttle: no more than 1 msg per 10 min
 
-    account_sid = bot.config.get("api_keys", {}).get("twilio_sid", None)
-    account_auth_token = bot.config.get("api_keys", {}).get("twilio_auth", None)
-    twilio_number = bot.config.get("api_keys", {}).get("twilio_number", None)
+    account_sid = bot.config.get("twilio", {}).get("sid", None)
+    account_auth_token = bot.config.get("twilio", {}).get("auth_token", None)
+    twilio_number = bot.config.get("twilio", {}).get("twilio_number", None)
+    throttle_time = int(bot.config.get("twilio", {}).get("throttle_time", "300"))
 
-    if not account_sid or not account_auth_token:
+    if not account_sid or not account_auth_token or not twilio_number:
         print "** missing info in api keys"
         return
 
@@ -70,7 +73,8 @@ def highlight_sms(nick, sender, message, channel, bot):
 
     # python owns
     now = datetime.now()
-    if not user.last_sms_time or (now - user.last_sms_time) > timedelta(minutes=10):
+    #if True:
+    if not user.last_sms_time or (now - user.last_sms_time) > timedelta(seconds=throttle_time):
 
         session = Session()
         user.last_sms_time = now
@@ -79,13 +83,17 @@ def highlight_sms(nick, sender, message, channel, bot):
 
         if user.enabled == True:
             client = TwilioRestClient(account_sid, account_auth_token)
-            to_num = "+%i" % (user.number)
-            from_num = "+%s" % (twilio_number)
+            to_num = "%s" % (user.number)
+            from_num = "%s" % (twilio_number)
             body = "(%s) %s: %s" % (channel, sender, message)
 
             print "sending >>> %s" % (body)
 
-            #message = client.sms.messages.create(to=to_num, from_=from_num, body = body)
+            message = client.sms.messages.create(to=to_num, from_=from_num, body = body)
+        else:
+            # this occurs when the user has disabled via SMS - it doesn't remove it from the nick cache
+            print "attempted to notify disabled user %s" % (nick)
+            highlight_nick_cache.remove(nick)
 
     else:
         print "Throttle hit for user %s (highlighted by %s)" % (nick, sender)
@@ -99,7 +107,7 @@ def highlight_hook(paraml, input=None, db=None, bot=None):
     channel = input.chan
 
     for nick in highlight_nick_cache:
-        if nick in message:
+        if nick.lower() in message.lower():
             highlight_sms(nick, sender, message, channel, bot)
 
 
@@ -109,7 +117,7 @@ def highlight_hook(paraml, input=None, db=None, bot=None):
 @hook.event("NOTICE", ignorebots=False)
 def listen_for_auth(paraml, input=None, db=None, bot=None, conn=None):
     if input.nick == "NickServ":
-        # returns "STATUS <nick> <num>"
+        # returns "STATUS <nick> <num>" on SynIRC, "ACC <nick> <num>" elsewhere?
         nick = input.msg.split(" ")[1]
         status = input.msg.split(" ")[2]
         if int(status) == 3:
@@ -119,7 +127,23 @@ def listen_for_auth(paraml, input=None, db=None, bot=None, conn=None):
             if result:
                 conn.msg(nick, result)
         else:
-            conn.msg(nick, "Could not confirm NickServ auth.")
+            conn.msg(nick, "Register & login with this nick before using SMSBot.")
+
+
+def convert_to_e164(raw_phone):
+    if not raw_phone:
+        return
+
+    if raw_phone[0] == '+':
+        # Phone number may already be in E.164 format.
+        parse_type = None
+    else:
+        # If no country code information is present, assume it's a US number
+        parse_type = "US"
+
+    phone_representation = phonenumbers.parse(raw_phone, parse_type)
+    return phonenumbers.format_number(phone_representation,
+        phonenumbers.PhoneNumberFormat.E164)
 
 
 @hook.command
@@ -129,10 +153,7 @@ def registersms(inp, nick='', chan='', db=None, input=None, conn=None):
 
 
 def _registersms(nick, arg):
-    try:
-        number = int(arg)
-    except ValueError:
-        return "Please give a valid phone number."
+    number = convert_to_e164(arg)
     
     user = User(nick, number)
 
