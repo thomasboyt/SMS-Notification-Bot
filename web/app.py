@@ -28,8 +28,6 @@ def receive_sms():
 
     user = User.query.filter_by(number=user_number).first()
 
-    print user_number
-
     if user:
         user.enabled = False
         db.session.add(user)
@@ -38,5 +36,3 @@ def receive_sms():
         return "Notifications have been disabled, %s. Use .enablesms next time you're on IRC to re-enable them." % (user.nick)
     else:
         return "No user registered with your number."
-
-#app.run(debug=True)
