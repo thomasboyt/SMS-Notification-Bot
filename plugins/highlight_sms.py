@@ -40,7 +40,7 @@ for user in session.query(User).filter_by(enabled=True):
     highlight_nick_cache.append(user.nick)
 session.close()
 
-authed_nicks = []
+auth_queue = {}
 
 
 ### Handle SMS highlights
@@ -66,6 +66,7 @@ def highlight_sms(nick, sender, message):
     else:
         print "Throttle hit for user %s (highlighted by %s)" % (nick, sender)
 
+
 @hook.singlethread
 @hook.event("PRIVMSG", ignorebots=True)
 def highlight_hook(paraml, input=None, db=None, bot=None):
@@ -73,18 +74,11 @@ def highlight_hook(paraml, input=None, db=None, bot=None):
     message = input.msg
 
     for nick in highlight_nick_cache:
-        print nick
-        print message
         if nick in message:
             highlight_sms(nick, sender, message)
 
 
 ### Register for SMS
-
-@hook.command
-def sms_auth(inp, nick='', chan='', conn=None):
-    conn.msg("nickserv", "STATUS %s" % (nick))
-
 
 @hook.singlethread
 @hook.event("NOTICE", ignorebots=False)
@@ -94,48 +88,81 @@ def listen_for_auth(paraml, input=None, db=None, bot=None, conn=None):
         nick = input.msg.split(" ")[1]
         status = input.msg.split(" ")[2]
         if int(status) == 3:
-            print "Authed %s for next command." % (nick)
-            authed_nicks.append(nick)
-            conn.msg(nick, "You are authed for your next command.")
+            #authed
+            result = auth_queue[nick]["command"](nick, auth_queue[nick]["arg"])
+            del auth_queue[nick]
+            if result:
+                conn.msg(nick, result)
         else:
             conn.msg(nick, "Could not confirm NickServ auth.")
 
 
 @hook.command
-def registersms(inp, nick='', chan='', db=None, input=None):
-    # this wrapper is gross, can probably convert it to decorator but :effort:
-    if nick in authed_nicks:
-        try:
-            number = int(inp)
-        except ValueError:
-            return "Please give a valid phone number."
-        
-        authed_nicks.remove(nick)
-
-        user = User(nick, inp)
-
-        try:
-            session = Session()
-            session.add(user)
-            session.commit()
-        except IntegrityError:
-            return "You've already registered. To change your number, use 'changenumber'."
-
-        highlight_nick_cache.append(nick)
-
-        return "Added you to the SMS registry. Use 'disablesms' to disable."
-    else:
-        return "Use .sms_auth to confirm you're the owner of this nick before continuing."
+def registersms(inp, nick='', chan='', db=None, input=None, conn=None):
+    auth_queue[nick] = {"command": _registersms, "arg": inp}
+    conn.msg("nickserv", "STATUS %s" % (nick))
 
 
-@hook.command
-def enablesms(inp, nick='', chan='', db=None, input=None):
-    pass
+def _registersms(nick, arg):
+    try:
+        number = int(arg)
+    except ValueError:
+        return "Please give a valid phone number."
+    
+    user = User(nick, number)
+
+    try:
+        session = Session()
+        session.add(user)
+        session.commit()
+    except IntegrityError:
+        return "You've already registered. To change your number, use 'changenumber'."
+
+    highlight_nick_cache.append(nick)
+
+    return "Added you to the SMS registry. Use 'disablesms' to disable."
 
 
 @hook.command
-def disablesms(inp, nick='', chan='', db=None, input=None):
+def enablesms(inp, nick='', chan='', db=None, input=None, conn=None):
+    auth_queue[nick] = {"command": _enablesms, "arg": inp}
+    conn.msg("nickserv", "STATUS %s" % (nick))
     pass
+
+
+def _enablesms(nick, arg):
+    session = Session()
+    user = session.query(User).filter_by(nick=nick).first()
+
+    if not user:
+        return "You are not registered."
+
+    user.enabled = True
+    session.add(user)
+    session.commit()
+
+    return "Enabled SMS messaging on highlights. To disable, use .disablesms."
+
+
+@hook.command
+def disablesms(inp, nick='', chan='', db=None, input=None, conn=None):
+    auth_queue[nick] = {"command": _disablesms, "arg": inp}
+    conn.msg("nickserv", "STATUS %s" % (nick))
+    pass
+
+
+def _disablesms(nick, arg):
+    session = Session()
+    user = session.query(User).filter_by(nick=nick).first()
+
+    if not user:
+        return "You are not registered."
+
+    user.enabled = False
+    session.add(user)
+    session.commit()
+
+    return "Disabled SMS messaging on highlights. To re-enable, use .enablesms."
 
 
 @hook.command
