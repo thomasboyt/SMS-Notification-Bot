@@ -9,7 +9,12 @@ from sqlalchemy.orm import sessionmaker
 
 ### Initialize DB
 
-sms_db = create_engine("sqlite:///test.db", echo=True)
+try:
+    database_uri = os.environ['DATABASE_URL']
+except KeyError:
+    database_uri = 'sqlite:///../test.db'
+
+sms_db = create_engine(database_uri, echo=True)
 Base = declarative_base()
 Session = sessionmaker(bind=sms_db)
 

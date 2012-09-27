@@ -7,5 +7,5 @@ pep8.py
 .project
 .pydevproject
 *.db
-web
-plugins_bkup/
+plugins_bkup
+venv

@@ -1,2 +1,4 @@
-twilio=3.3.11
+twilio==3.3.11
 SQLAlchemy==0.7.8
+Flask==0.9
+flask-sqlalchemy==0.16
