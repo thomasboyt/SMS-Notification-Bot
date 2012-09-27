@@ -1,0 +1,1 @@
+[02:37:39] <AnVolcano> i mean its not gonna be stupid as hell. it's gonna automatically enable/disable based on if you're active in the channel, it'll let you unsub with a single reply to any future messages, have very strong throttling (like probably 1 message/hour)
