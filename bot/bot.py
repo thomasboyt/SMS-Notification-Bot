@@ -4,6 +4,8 @@ import os
 import Queue
 import sys
 import time
+import redis
+import threading
 
 sys.path += ['plugins']  # so 'import hook' works without duplication
 sys.path += ['lib']
@@ -50,9 +52,13 @@ if not os.path.exists(bot.persist_dir):
 
 print 'Running main loop'
 
+
 while True:
     reload()  # these functions only do things
     config()  # if changes have occured
+
+    #for m in r.listen():
+    #    print "From Redis: ", m
 
     for conn in bot.conns.itervalues():
         try:

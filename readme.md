@@ -6,6 +6,7 @@ An IRC bot (based on Skybot) that can send SMS messages to you when your name is
 
 * Throttling!
 * Unsubscribe from future SMS's by replying
+* Reply via SMS (powered by Redis)
 
 ## Coming Soon
 

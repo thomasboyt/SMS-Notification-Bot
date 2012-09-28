@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 import os
 import phonenumbers
+import redis
+import threading
 
 from util import hook
 
@@ -33,7 +35,10 @@ class User(Base):
     nick = Column(String, unique=True)
     number = Column(String)
     enabled = Column(Boolean, default=True)
+
     last_sms_time = Column(DateTime)
+    last_sms_sender = Column(String)
+    last_sms_replied = Column(Boolean, default=True)
 
     def __init__(self, nick, number):
         self.nick = nick
@@ -51,6 +56,27 @@ for user in session.query(User).filter_by(enabled=True):
 session.close()
 
 auth_queue = {}
+
+
+### Redis pub/sub
+
+def redis_cb(conn):
+    r = redis.StrictRedis(host="localhost", port=6379, db=0)
+    r = r.pubsub()
+    r.subscribe("sms_replies")
+    while True:
+        for m in r.listen():
+            print m
+            if m['type'] == "message":
+                from_nick, to_nick, reply_body = m['data'].split(" ", 2)
+
+                conn.msg(to_nick, "SMS reply from %s: %s [Please do not attempt to reply to this message.]" % (from_nick, reply_body))
+
+@hook.event('004')
+def redis_onjoin(paraml, conn=None):
+    t = threading.Thread(target=redis_cb, args=(conn,))
+    t.setDaemon(True)
+    t.start()
 
 
 ### Handle SMS highlights
@@ -78,6 +104,8 @@ def highlight_sms(nick, sender, message, channel, bot):
 
         session = Session()
         user.last_sms_time = now
+        user.last_sms_sender = sender
+        user.last_sms_replied = False
         session.add(user)
         session.commit()
 
